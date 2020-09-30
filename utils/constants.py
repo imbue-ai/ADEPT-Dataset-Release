@@ -40,7 +40,7 @@ COLORS.update(SIMPLE_COLORS)
 
 eps = .0001
 
-CONTENT_FOLDER = "CONTENT_FOLDER"
+CONTENT_FOLDER = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 CONFIG_FOLDER = mkdir(os.path.join(CONTENT_FOLDER, "config"))
 SIM_OUTPUT_FOLDER = mkdir(os.path.join(CONTENT_FOLDER, "phys_sim", "output"))
 RENDER_OUTPUT_FOLDER = mkdir(os.path.join(CONTENT_FOLDER, "render", "output"))
