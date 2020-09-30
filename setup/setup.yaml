@@ -39,13 +39,14 @@ dependencies:
   - numpy=1.19.1=py38hbc911f0_0
   - numpy-base=1.19.1=py38hfa32c7d_0
   - olefile=0.46=py_0
+  - openjpeg=2.3.0=h05c96fa_1
   - openssl=1.1.1h=h7b6447c_0
   - pillow=7.2.0=py38hb39fc2d_0
   - pip=20.2.2=py38_0
   - pycocotools=2.0.2=py38h1e0a361_0
   - pyparsing=2.4.7=py_0
   - python=3.8.3=hcff3b4d_2
-  - python-blender=2.81=1588839915
+  - python-blender=2.83=1592498919
   - python-dateutil=2.8.1=py_0
   - python_abi=3.8=1_cp38
   - pyyaml=5.3.1=py38h7b6447c_1

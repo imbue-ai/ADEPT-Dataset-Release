@@ -36,7 +36,13 @@ def obj_to_blend(cat_name, shape_name):
     # bpy.ops.object.select_all(action='SELECT')
     # bpy.ops.object.delete()
 
-    bpy.ops.import_scene.obj(filepath=file_path, split_mode="OFF")
+    try:
+        bpy.ops.import_scene.obj(filepath=file_path, split_mode="OFF")
+    except:
+        sys.stderr.write("ERROR: {}\n".format(file_path))
+        sys.stderr.flush()
+        return (name, None)
+
     object = bpy.context.view_layer.objects.active = bpy.context.scene.objects[0]
     object.name = name
 
@@ -55,7 +61,7 @@ def obj_to_blend(cat_name, shape_name):
 
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.transform.translate(value=[0, 0, 0])
-    bpy.ops.transform.rotate(value=np.pi / 2, orient_axis="X")  # not sure for axis
+    bpy.ops.transform.rotate(value=-np.pi / 2, orient_axis="X")  # not sure for axis
     bpy.ops.transform.resize(value=[scaling, scaling, scaling])
     bpy.ops.mesh.normals_make_consistent(inside=False)
     bpy.ops.object.mode_set(mode="OBJECT")
@@ -69,9 +75,10 @@ def obj_to_blend(cat_name, shape_name):
     for material in list(bpy.data.materials):
         bpy.data.materials.remove(material)
 
+    sys.stdout.write("{} generated\n".format(name))
     bpy.ops.wm.save_as_mainfile(filepath=out_path)
-    sys.stderr.write("{} generated\n".format(name))
-    sys.stderr.flush()
+    sys.stdout.write("{} collected\n".format(name))
+    sys.stdout.flush()
 
     return (name, tuple(x / 2 for x in object.dimensions))
 
@@ -120,8 +127,12 @@ if __name__ == '__main__':
             # since the task complexity is uneven and most of the workers finish early :(
             # TODO: actually switching it over from starmap causes the workers to hang :(
             # I suspect it's some cursed Blender interaction, but I can't reproduce it :(
-            all_dimensions = p.starmap(obj_to_blend, worker_args)
+            all_dimensions = p.starmap(obj_to_blend, worker_args, 16)
             print("starmap done")
 
         write_serialized(dict(all_dimensions),
                          os.path.join(SIM_SHAPE_NET_FOLDER, "all_dimensions_{:02d}.json".format(args.start_index)))
+
+
+# 0053000963 generated
+# 0053000963 collected
