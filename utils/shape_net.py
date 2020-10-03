@@ -1,6 +1,5 @@
 import re
 import os
-import numpy as np
 from utils.io import read_serialized, mkdir
 from utils.constants import CONTENT_FOLDER
 
@@ -43,6 +42,7 @@ SHAPE_DIMENSIONS = {**_shape_dimensions, **_shape_net_dimensions}
 
 
 def random_shape_net(cat_id, is_train):
+    import numpy as np
     cat_id = int(cat_id)
     if is_train:
         assert cat_id % 5 != 0

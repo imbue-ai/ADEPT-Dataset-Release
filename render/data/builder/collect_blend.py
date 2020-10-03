@@ -1,11 +1,24 @@
+
 import argparse
+import datetime
 from multiprocessing import Pool, cpu_count
 import os
 import sys
 from collections import defaultdict
 
-import numpy as np
+import math
 import bpy
+
+FAST=12
+
+# noinspection PyUnresolvedReferences
+import bpy_extras.wm_utils.progress_report
+# noinspection PyUnresolvedReferences
+import io_scene_obj.import_obj
+
+if FAST:
+    bpy_extras.wm_utils.progress_report.print = lambda t, *args, **kwargs : None
+    io_scene_obj.import_obj.print = lambda t : None if t.startswith("\tMaterial not found MTL: ") else print(t)
 
 from utils.io import write_serialized, read_serialized
 from utils.misc import get_host_id
@@ -26,23 +39,96 @@ def prepare_empty_scene_and_fix_filmic_complaints():
     bpy.ops.wm.save_homefile()
 
 
+def debug_workers(worker_args, n_workers):
+    from multiprocessing import Process, Queue, Event
+    from queue import Empty
+
+    class Worker(Process):
+        def __init__(self, q: Queue, e: Event):
+            Process.__init__(self)
+            self.q = q
+            self.e = e
+        def run(self):
+            file = open("./workers.%06d.log" % os.getpid(), "w", 1)
+            while True:
+                try:
+                    cat_name, shape_name = self.q.get(True, 1.0)
+                    file.write("%s %s [   \n" % (cat_name, shape_name))
+                except Empty:
+                    break
+                if self.e.is_set():
+                    file.write("%s %s  ?  \n" % (cat_name, shape_name))
+                    sys.stderr.write("EXCEPTION.")
+                    sys.stderr.flush()
+                    break
+                try:
+                    obj_to_blend(cat_name, shape_name)
+                    file.write("%s %s    ]\n" % (cat_name, shape_name))
+                except:
+                    file.write("%s %s   ! \n" % (cat_name, shape_name))
+                    self.e.set()
+                    sys.stderr.write("EXCEPTION: {} {}\n".format(cat_name, shape_name))
+                    sys.stderr.flush()
+                    raise
+
+    s = len(worker_args)
+    q = Queue()
+    e = Event()
+
+    def qsize(m: str, n: int = None):
+        nonlocal s
+        if n is None:
+            n = q.qsize()
+        d = s - n
+        s = n
+        t = datetime.datetime.now().isoformat(" ")
+        sys.stderr.write("{} {:>5} {:>5} {} \n".format(m, d, n, t))
+        sys.stderr.flush()
+
+    if n_workers <= 0:
+        raise ValueError("n >= 1 workers required")
+    if n_workers == 1:
+        w = Worker(q, e)
+        for arg in worker_args:
+            q.put_nowait(arg)
+        w.run()
+        return
+
+    workers = [Worker(q, e) for _ in range(n_workers)]
+    for arg in worker_args:
+        q.put_nowait(arg)
+    qsize("QSIZE:")
+    for worker in workers:
+        worker.start()
+    q.close()
+    while True:
+        if e.wait(10.0):
+            qsize("ABORT.")
+            break
+        n = q.qsize()
+        qsize("QSIZE:", n)
+        if n == 0:
+            break
+    qsize("JOIN1.")
+    for worker in workers:
+        worker.join()
+    qsize("JOIN2.")
+
+
 def obj_to_blend(cat_name, shape_name):
     name = cat_name + shape_name
+
     file_path = os.path.join(SIM_SHAPE_NET_FOLDER, cat_name, "{}.obj".format(shape_name))
     out_path = os.path.join(RENDER_SHAPE_NET_FOLDER, cat_name, "{}.blend".format(shape_name))
+
+    sys.stdout.flush()
 
     os.makedirs(os.path.join(RENDER_SHAPE_NET_FOLDER, cat_name), exist_ok=True)
     bpy.ops.wm.read_homefile(use_empty=True)
     # bpy.ops.object.select_all(action='SELECT')
     # bpy.ops.object.delete()
 
-    try:
-        bpy.ops.import_scene.obj(filepath=file_path, split_mode="OFF")
-    except:
-        sys.stderr.write("ERROR: {}\n".format(file_path))
-        sys.stderr.flush()
-        return (name, None)
-
+    bpy.ops.import_scene.obj(filepath=file_path, split_mode="OFF")
     object = bpy.context.view_layer.objects.active = bpy.context.scene.objects[0]
     object.name = name
 
@@ -61,7 +147,7 @@ def obj_to_blend(cat_name, shape_name):
 
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.transform.translate(value=[0, 0, 0])
-    bpy.ops.transform.rotate(value=-np.pi / 2, orient_axis="X")  # not sure for axis
+    bpy.ops.transform.rotate(value=-math.pi / 2, orient_axis="X")  # not sure for axis
     bpy.ops.transform.resize(value=[scaling, scaling, scaling])
     bpy.ops.mesh.normals_make_consistent(inside=False)
     bpy.ops.object.mode_set(mode="OBJECT")
@@ -75,9 +161,8 @@ def obj_to_blend(cat_name, shape_name):
     for material in list(bpy.data.materials):
         bpy.data.materials.remove(material)
 
-    sys.stdout.write("{} generated\n".format(name))
-    bpy.ops.wm.save_as_mainfile(filepath=out_path)
-    sys.stdout.write("{} collected\n".format(name))
+#   bpy.ops.wm.save_as_mainfile(filepath=out_path) # TODO: enable
+
     sys.stdout.flush()
 
     return (name, tuple(x / 2 for x in object.dimensions))
@@ -85,15 +170,18 @@ def obj_to_blend(cat_name, shape_name):
 
 
 if __name__ == '__main__':
-    args = parse_args()
-    if args.start_index is None:
-        args.start_index = get_host_id() % args.stride
+#   args = parse_args()
+#   if args.start_index is None:
+#       args.start_index = get_host_id() % args.stride
+    args_start_index = 0
+    args_stride = 1
+    args_reduce = False
 
     prepare_empty_scene_and_fix_filmic_complaints()
 
-    if args.reduce:
+    if args_reduce:
         all_dimensions = dict()
-        for i in range(args.stride):
+        for i in range(args_stride):
             all_dimensions.update(
                 read_serialized(os.path.join(SIM_SHAPE_NET_FOLDER, "all_dimensions_{:02d}.json".format(i))))
 
@@ -119,7 +207,10 @@ if __name__ == '__main__':
                 worker_args.append((cat_id, shape_id))
 
         worker_args.sort()
-        worker_args = worker_args[args.start_index::args.stride]
+        worker_args = worker_args[args_start_index::args_stride]
+
+        debug_workers(worker_args, FAST)  # TODO: increase
+        sys.exit(0)
 
         with Pool(cpu_count()) as p:
             # TODO: this *really* should be using unordered_imap and/or a chunksize of 16
@@ -134,5 +225,9 @@ if __name__ == '__main__':
                          os.path.join(SIM_SHAPE_NET_FOLDER, "all_dimensions_{:02d}.json".format(args.start_index)))
 
 
-# 0053000963 generated
-# 0053000963 collected
+# 0000 001903 [02] worker.308085.log
+# 0000 003249 [06] worker.308089.log
+# 0000 000748 [00]
+
+# nuke /home/bawr/.config/blender/2.82/scripts
+# time PYTHONPATH=$CONDA_PREFIX/lib/python3.7/site-packages:. $BB --python-use-system-env --python ./render/data/builder/collect_blend.py 2> collect.err | tee collect.log

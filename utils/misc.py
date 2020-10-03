@@ -4,8 +4,6 @@ import sys
 import argparse
 from typing import Iterable
 
-import numpy as np
-
 from utils.constants import SIMPLE_COLORS
 
 
@@ -35,6 +33,7 @@ class BlenderArgumentParser(argparse.ArgumentParser):
 
 def rand(low, high):
     """A random float from low to high"""
+    import numpy as np
     return np.random.uniform(low, high)
 
 
