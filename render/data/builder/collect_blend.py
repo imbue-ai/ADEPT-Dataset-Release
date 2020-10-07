@@ -172,7 +172,7 @@ def obj_to_blend(cat_name, shape_name):
 
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.transform.translate(value=[0, 0, 0])
-    bpy.ops.transform.rotate(value=-math.pi / 2, orient_axis="X")  # not sure for axis
+    bpy.ops.transform.rotate(value=-math.pi / 2, orient_axis="X")  # TODO: CHECK BLENDER API: not sure for axis
     bpy.ops.transform.resize(value=[scaling, scaling, scaling])
     bpy.ops.mesh.normals_make_consistent(inside=False)
     bpy.ops.object.mode_set(mode="OBJECT")
