@@ -9,7 +9,7 @@ from collections import defaultdict
 import math
 import bpy
 
-FAST=12
+FAST=10
 
 # noinspection PyUnresolvedReferences
 import bpy_extras.wm_utils.progress_report
@@ -44,12 +44,14 @@ def debug_workers(worker_args, n_workers):
     from queue import Empty
 
     class Worker(Process):
-        def __init__(self, q: Queue, e: Event):
+        def __init__(self, q: Queue, e: Event, i = 0):
             Process.__init__(self)
             self.q = q
             self.e = e
+            self.i = i
         def run(self):
-            file = open("./workers.%06d.log" % os.getpid(), "w", 1)
+            file = open("./workers.%02d.log" % self.i, "w", 1)
+            file.write("START: %d\n" % os.getpid())
             while True:
                 try:
                     cat_name, shape_name = self.q.get(True, 1.0)
@@ -58,17 +60,20 @@ def debug_workers(worker_args, n_workers):
                     break
                 if self.e.is_set():
                     file.write("%s %s  ?  \n" % (cat_name, shape_name))
-                    sys.stderr.write("EXCEPTION.")
-                    sys.stderr.flush()
                     break
                 try:
                     obj_to_blend(cat_name, shape_name)
                     file.write("%s %s    ]\n" % (cat_name, shape_name))
                 except:
+                    try:
+                        dump = open(os.path.join(RENDER_SHAPE_NET_FOLDER, cat_name, shape_name + ".error"))
+                        dump.close()
+                    except:
+                        pass
+                    file.write("%s %s   X \n" % (cat_name, shape_name))
+                    continue
                     file.write("%s %s   ! \n" % (cat_name, shape_name))
                     self.e.set()
-                    sys.stderr.write("EXCEPTION: {} {}\n".format(cat_name, shape_name))
-                    sys.stderr.flush()
                     raise
 
     s = len(worker_args)
@@ -87,6 +92,7 @@ def debug_workers(worker_args, n_workers):
 
     if n_workers <= 0:
         raise ValueError("n >= 1 workers required")
+
     if n_workers == 1:
         w = Worker(q, e)
         for arg in worker_args:
@@ -94,24 +100,43 @@ def debug_workers(worker_args, n_workers):
         w.run()
         return
 
-    workers = [Worker(q, e) for _ in range(n_workers)]
+    workers = [Worker(q, e, i) for i in range(n_workers)]
     for arg in worker_args:
         q.put_nowait(arg)
+
     qsize("QSIZE:")
+
     for worker in workers:
         worker.start()
+
     q.close()
+
     while True:
         if e.wait(10.0):
             qsize("ABORT.")
             break
+
         n = q.qsize()
         qsize("QSIZE:", n)
+
         if n == 0:
             break
+
+        death = 0
+        for worker in workers:
+            if worker.exitcode:
+                qsize("X{:+04d}:".format(worker.exitcode))
+                death += 1
+
+        if death:
+            e.set()
+            break
+
     qsize("JOIN1.")
+
     for worker in workers:
         worker.join()
+
     qsize("JOIN2.")
 
 
@@ -161,7 +186,7 @@ def obj_to_blend(cat_name, shape_name):
     for material in list(bpy.data.materials):
         bpy.data.materials.remove(material)
 
-#   bpy.ops.wm.save_as_mainfile(filepath=out_path) # TODO: enable
+    bpy.ops.wm.save_as_mainfile(filepath=out_path) # TODO: enable
 
     sys.stdout.flush()
 
@@ -175,7 +200,7 @@ if __name__ == '__main__':
 #       args.start_index = get_host_id() % args.stride
     args_start_index = 0
     args_stride = 1
-    args_reduce = False
+    args_reduce = '--reduce' in sys.argv
 
     prepare_empty_scene_and_fix_filmic_complaints()
 
@@ -209,8 +234,9 @@ if __name__ == '__main__':
         worker_args.sort()
         worker_args = worker_args[args_start_index::args_stride]
 
-        debug_workers(worker_args, FAST)  # TODO: increase
-        sys.exit(0)
+        if False:
+            debug_workers(worker_args, FAST)  # TODO: increase
+            sys.exit(0)
 
         with Pool(cpu_count()) as p:
             # TODO: this *really* should be using unordered_imap and/or a chunksize of 16
@@ -222,7 +248,7 @@ if __name__ == '__main__':
             print("starmap done")
 
         write_serialized(dict(all_dimensions),
-                         os.path.join(SIM_SHAPE_NET_FOLDER, "all_dimensions_{:02d}.json".format(args.start_index)))
+                         os.path.join(SIM_SHAPE_NET_FOLDER, "all_dimensions_{:02d}.json".format(args_start_index)))
 
 
 # 0000 001903 [02] worker.308085.log
