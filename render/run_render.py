@@ -40,7 +40,7 @@ def main(config):
     render_args.tile_y = rendering.render_tile_size
     if rendering.use_gpu:
         if True:
-            enable_gpus("CUDA", True)
+            enable_gpus()
             render_args.tile_x = rendering.render_tile_size_gpu
             render_args.tile_y = rendering.render_tile_size_gpu
         else:
@@ -159,31 +159,30 @@ def main(config):
                                               "{:s}_ann.yaml".format(rendering.image_prefix)))
 
 
-def enable_gpus(device_type, use_cpus=False):
-    import bpy
-    preferences = bpy.context.preferences
-    cycles_preferences = preferences.addons["cycles"].preferences
-    cuda_devices, opencl_devices = cycles_preferences.get_devices()
+def enable_gpus(gpu_system_ids=None, cpu_enabled=False):
+    cycles_prefs = bpy.context.preferences.addons["cycles"].preferences
+    cycles_scene = bpy.context.scene.cycles
+    cuda_devices, opencl_devices = cycles_prefs.get_devices()
 
-    if device_type == "CUDA":
-        devices = cuda_devices
-    elif device_type == "OPENCL":
-        devices = opencl_devices
-    else:
-        raise RuntimeError("Unsupported device type")
+    type_devices = {}
+    for device in cuda_devices:
+        type_devices.setdefault(device.type, []).append(device)
 
-    activated_gpus = []
-
-    for device in devices:
-        if device.type == "CPU":
-            device.use = use_cpus
+    if gpu_system_ids is None:
+        gpu_envvar_ids = os.getenv("BLENDER_CUDA_IDS")
+        if gpu_envvar_ids is not None:
+            gpu_system_ids = set(map(int, gpu_envvar_ids.split(",")))
         else:
-            device.use = True
-            activated_gpus.append(device.name)
+            gpu_system_ids = set(range(len(type_devices["CUDA"])))
 
-    cycles_preferences.compute_device_type = device_type
-    bpy.context.scene.cycles.device = "GPU"
+    assert gpu_system_ids
+    assert not cpu_enabled
 
-    print(activated_gpus)
+    for i, device in enumerate(type_devices["CUDA"]):
+        device.use = (i in gpu_system_ids)
 
-    return activated_gpus
+    for i, device in enumerate(type_devices["CPU"]):
+        device.use = cpu_enabled
+
+    cycles_prefs.compute_device_type = "CUDA"
+    cycles_scene.device = "GPU"
