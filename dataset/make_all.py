@@ -51,7 +51,7 @@ def update_render(config):
     # video settings
     rendering.fps = 25
     # render settings
-    rendering.use_gpu = False
+    rendering.use_gpu = True
     rendering.render_num_samples = 128
     rendering.render_min_bounces = 4
     rendering.render_max_bounces = 8

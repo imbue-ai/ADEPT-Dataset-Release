@@ -38,16 +38,21 @@ def main(config):
     render_args.resolution_percentage = 100
     render_args.tile_x = rendering.render_tile_size
     render_args.tile_y = rendering.render_tile_size
-    if rendering.use_gpu == 1:
-        # blender changed the API for enabling CUDA at some point
-        pref = bpy.context.user_preferences.addons["cycles"].preferences
-        pref.compute_device_type = "CUDA"
-        for device in pref.devices:
-            device.use = True
-        # bpy.context.user_preferences.system.compute_device_type = 'CUDA'
-        # bpy.context.user_preferences.system.compute_device = 'CUDA_0'
-        render_args.tile_x = rendering.render_tile_size_gpu
-        render_args.tile_y = rendering.render_tile_size_gpu
+    if rendering.use_gpu:
+        if True:
+            enable_gpus("CUDA", True)
+            render_args.tile_x = rendering.render_tile_size_gpu
+            render_args.tile_y = rendering.render_tile_size_gpu
+        else:
+            # blender changed the API for enabling CUDA at some point
+            pref = bpy.context.user_preferences.addons["cycles"].preferences
+            pref.compute_device_type = "CUDA"
+            for device in pref.devices:
+                device.use = True
+            # bpy.context.user_preferences.system.compute_device_type = 'CUDA'
+            # bpy.context.user_preferences.system.compute_device = 'CUDA_0'
+            render_args.tile_x = rendering.render_tile_size_gpu
+            render_args.tile_y = rendering.render_tile_size_gpu
 
     # some CYCLES-specific stuff
     bpy.data.worlds['World'].cycles.sample_as_light = True
@@ -55,7 +60,8 @@ def main(config):
     bpy.context.scene.cycles.samples = rendering.render_num_samples
     bpy.context.scene.cycles.transparent_min_bounces = rendering.render_min_bounces
     bpy.context.scene.cycles.transparent_max_bounces = rendering.render_max_bounces
-    if rendering.use_gpu == 1:
+
+    if rendering.use_gpu:
         bpy.context.scene.cycles.device = 'GPU'
 
     bpy.context.scene.use_nodes = True
@@ -151,3 +157,33 @@ def main(config):
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(rendering.output_dir, "scene.blend"))
     write_serialized(scene_anns, os.path.join(rendering.output_dir,
                                               "{:s}_ann.yaml".format(rendering.image_prefix)))
+
+
+def enable_gpus(device_type, use_cpus=False):
+    import bpy
+    preferences = bpy.context.preferences
+    cycles_preferences = preferences.addons["cycles"].preferences
+    cuda_devices, opencl_devices = cycles_preferences.get_devices()
+
+    if device_type == "CUDA":
+        devices = cuda_devices
+    elif device_type == "OPENCL":
+        devices = opencl_devices
+    else:
+        raise RuntimeError("Unsupported device type")
+
+    activated_gpus = []
+
+    for device in devices:
+        if device.type == "CPU":
+            device.use = use_cpus
+        else:
+            device.use = True
+            activated_gpus.append(device.name)
+
+    cycles_preferences.compute_device_type = device_type
+    bpy.context.scene.cycles.device = "GPU"
+
+    print(activated_gpus)
+
+    return activated_gpus
