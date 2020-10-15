@@ -13,6 +13,7 @@ from render.camera import set_camera
 
 from utils.io import mkdir, clr_dir, write_serialized
 from utils.geometry import convert_euler, convert_inverse_euler
+from utils.config import Config
 
 
 def main(config):
@@ -32,37 +33,25 @@ def main(config):
 
     # set up render parameters
     render_args = bpy.context.scene.render
-    render_args.engine = 'CYCLES'
-    render_args.resolution_x = rendering.width
-    render_args.resolution_y = rendering.height
-    render_args.resolution_percentage = 100
-    render_args.tile_x = rendering.render_tile_size
-    render_args.tile_y = rendering.render_tile_size
-    if rendering.use_gpu:
-        if True:
-            enable_gpus()
-            render_args.tile_x = rendering.render_tile_size_gpu
-            render_args.tile_y = rendering.render_tile_size_gpu
-        else:
-            # blender changed the API for enabling CUDA at some point
-            pref = bpy.context.user_preferences.addons["cycles"].preferences
-            pref.compute_device_type = "CUDA"
-            for device in pref.devices:
-                device.use = True
-            # bpy.context.user_preferences.system.compute_device_type = 'CUDA'
-            # bpy.context.user_preferences.system.compute_device = 'CUDA_0'
-            render_args.tile_x = rendering.render_tile_size_gpu
-            render_args.tile_y = rendering.render_tile_size_gpu
 
-    # some CYCLES-specific stuff
-    bpy.data.worlds['World'].cycles.sample_as_light = True
-    bpy.context.scene.cycles.blur_glossy = 2.0
-    bpy.context.scene.cycles.samples = rendering.render_num_samples
-    bpy.context.scene.cycles.transparent_min_bounces = rendering.render_min_bounces
-    bpy.context.scene.cycles.transparent_max_bounces = rendering.render_max_bounces
+    render_args.engine = Config.render.engine.type
+    render_args.resolution_percentage = Config.render.resolution_percentage
+    render_args.resolution_x = Config.render.resolution_x
+    render_args.resolution_y = Config.render.resolution_y
+    render_args.tile_x = Config.render.tile_x
+    render_args.tile_y = Config.render.tile_y
 
-    if rendering.use_gpu:
-        bpy.context.scene.cycles.device = 'GPU'
+    if Config.render.gpu_use:
+        enable_gpus(Config.render.gpu_ids)
+
+    if Config.render.engine.type == 'CYCLES':
+        bpy.data.worlds['World'].cycles.sample_as_light = Config.render.engine.world.sample_as_light
+        bpy.context.scene.cycles.blur_glossy = Config.render.engine.scene.blur_glossy
+        bpy.context.scene.cycles.samples = Config.render.engine.scene.samples
+        bpy.context.scene.cycles.transparent_min_bounces = Config.render.engine.scene.transparent_min_bounces
+        bpy.context.scene.cycles.transparent_max_bounces = Config.render.engine.scene.transparent_max_bounces
+    else:
+        raise RuntimeError('unknown render engine: %s' % Config.render.engine.type)
 
     bpy.context.scene.use_nodes = True
     bpy.context.scene.view_layers['RenderLayer'].use_pass_object_index = True
@@ -159,7 +148,7 @@ def main(config):
                                               "{:s}_ann.yaml".format(rendering.image_prefix)))
 
 
-def enable_gpus(gpu_system_ids=None, cpu_enabled=False):
+def enable_gpus(gpu_ids=None, cpu_enabled=False):
     cycles_prefs = bpy.context.preferences.addons["cycles"].preferences
     cycles_scene = bpy.context.scene.cycles
     cuda_devices, opencl_devices = cycles_prefs.get_devices()
@@ -168,18 +157,16 @@ def enable_gpus(gpu_system_ids=None, cpu_enabled=False):
     for device in cuda_devices:
         type_devices.setdefault(device.type, []).append(device)
 
-    if gpu_system_ids is None:
-        gpu_envvar_ids = os.getenv("BLENDER_CUDA_IDS")
-        if gpu_envvar_ids is not None:
-            gpu_system_ids = set(map(int, gpu_envvar_ids.split(",")))
-        else:
-            gpu_system_ids = set(range(len(type_devices["CUDA"])))
+    if gpu_ids is None:
+        gpu_ids = set(range(len(type_devices["CUDA"])))
+    else:
+        gpu_ids = set(gpu_ids)
 
-    assert gpu_system_ids
+    assert gpu_ids
     assert not cpu_enabled
 
     for i, device in enumerate(type_devices["CUDA"]):
-        device.use = (i in gpu_system_ids)
+        device.use = (i in gpu_ids)
 
     for i, device in enumerate(type_devices["CPU"]):
         device.use = cpu_enabled
