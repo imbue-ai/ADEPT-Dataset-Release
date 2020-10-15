@@ -154,7 +154,7 @@ def main(config):
 
             scene_anns["scene"].append(frame_anns)
 
-    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(rendering.output_dir, "scene.blend"))
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(rendering.output_dir, "scene.blend"), compress=True)
     write_serialized(scene_anns, os.path.join(rendering.output_dir,
                                               "{:s}_ann.yaml".format(rendering.image_prefix)))
 
