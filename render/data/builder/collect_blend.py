@@ -4,12 +4,15 @@ import datetime
 from multiprocessing import Pool, cpu_count
 import os
 import sys
+import zipfile
+import tempfile
 from collections import defaultdict
 
 import math
 import bpy
 
 FAST=10
+DIRECT_ZIP=True
 
 # noinspection PyUnresolvedReferences
 import bpy_extras.wm_utils.progress_report
@@ -23,6 +26,34 @@ if FAST:
 from utils.io import write_serialized, read_serialized
 from utils.misc import get_host_id
 from utils.shape_net import SIM_SHAPE_NET_FOLDER, RENDER_SHAPE_NET_FOLDER, SHAPE_NET_CATEGORY, SHAPE_NET_NUMS, mkdir
+
+
+if DIRECT_ZIP:
+    print("ZIP MAGIC YAAAAAAAAY")
+    DIRECT_ZIP_TEMP_DIR = "/dev/shm/blend"
+    os.makedirs(DIRECT_ZIP_TEMP_DIR, exist_ok=True)
+
+    # want a global zip file / contents accessible by qall the workers
+    ZIP_PATH = "/media/bawr/ev850/data/ShapeNetCore.v2/ShapeNetCore.v2.zip"
+    DIRECT_ZIP_FILE = zipfile.ZipFile(ZIP_PATH, "r")
+    normalized_objs = [t for t in DIRECT_ZIP_FILE.namelist() if "model_normalized.obj" in t]
+    shapes = defaultdict(lambda: len(shapes))
+    categories = defaultdict(lambda: len(categories))
+    DIRECT_ZIP_MAP = {}
+    for path in sorted(normalized_objs):
+        splits = path.split('/')
+        category_number = splits[1]
+        shape_number = splits[2]
+        DIRECT_ZIP_MAP[f"{categories[category_number]:04}/{shapes[shape_number]:06}"] = path
+    ZIP_FILE_POSITION = DIRECT_ZIP_FILE.fp.tell()
+
+
+def maybe_fix_zip_file():
+    if DIRECT_ZIP:
+        import threading
+        import io
+        DIRECT_ZIP_FILE.fp = io.open(ZIP_PATH, "rb")
+        DIRECT_ZIP_FILE.fp.seek(ZIP_FILE_POSITION)
 
 
 def parse_args():
@@ -142,9 +173,23 @@ def debug_workers(worker_args, n_workers):
 
 def obj_to_blend(cat_name, shape_name):
     name = cat_name + shape_name
-
-    file_path = os.path.join(SIM_SHAPE_NET_FOLDER, cat_name, "{}.obj".format(shape_name))
     out_path = os.path.join(RENDER_SHAPE_NET_FOLDER, cat_name, "{}.blend".format(shape_name))
+
+    if os.path.exists(out_path):
+        bpy.ops.wm.open_mainfile(filepath=out_path)
+        object = bpy.context.view_layer.objects.active = bpy.context.scene.objects[0]
+        return (name, tuple(x / 2 for x in object.dimensions))
+
+    if DIRECT_ZIP:
+        pack_path = DIRECT_ZIP_MAP[cat_name + '/' + shape_name]
+        file_path = os.path.join(DIRECT_ZIP_TEMP_DIR, pack_path)
+        try:
+            DIRECT_ZIP_FILE.extract(pack_path, DIRECT_ZIP_TEMP_DIR)
+        except:
+            print("TERRIBLE NO GOOD THINGS", pack_path)
+            return None
+    else:
+        file_path = os.path.join(SIM_SHAPE_NET_FOLDER, cat_name, "{}.obj".format(shape_name))
 
     sys.stdout.flush()
 
@@ -154,6 +199,10 @@ def obj_to_blend(cat_name, shape_name):
     # bpy.ops.object.delete()
 
     bpy.ops.import_scene.obj(filepath=file_path, split_mode="OFF")
+
+    if DIRECT_ZIP:
+        os.unlink(file_path)
+
     object = bpy.context.view_layer.objects.active = bpy.context.scene.objects[0]
     object.name = name
 
@@ -186,7 +235,7 @@ def obj_to_blend(cat_name, shape_name):
     for material in list(bpy.data.materials):
         bpy.data.materials.remove(material)
 
-    bpy.ops.wm.save_as_mainfile(filepath=out_path) # TODO: enable
+    bpy.ops.wm.save_as_mainfile(filepath=out_path, compress=True) # TODO: enable
 
     sys.stdout.flush()
 
@@ -204,7 +253,34 @@ if __name__ == '__main__':
 
     prepare_empty_scene_and_fix_filmic_complaints()
 
-    if args_reduce:
+    if not args_reduce:
+        worker_args = []
+
+        for cat_id in SHAPE_NET_CATEGORY.keys():
+            for shape_id in range(SHAPE_NET_NUMS[cat_id]):
+                shape_id = "{:06d}".format(shape_id)
+                worker_args.append((cat_id, shape_id))
+
+        worker_args.sort()
+        worker_args = worker_args[args_start_index::args_stride]
+        worker_args = [(p, q) for p, q in worker_args if p == "0000"]
+
+        if False:
+            debug_workers(worker_args, FAST)  # TODO: increase
+            sys.exit(0)
+
+        with Pool(cpu_count(), initializer=maybe_fix_zip_file) as p:
+            # TODO: this *really* should be using unordered_imap and/or a chunksize of 16
+            # right now even if you have 10+ cores, only 1 will be used for the most part
+            # since the task complexity is uneven and most of the workers finish early :(
+            # TODO: actually switching it over from starmap causes the workers to hang :(
+            # I suspect it's some cursed Blender interaction, but I can't reproduce it :(
+            all_dimensions = p.starmap(obj_to_blend, worker_args, 16)
+            print("starmap done")
+
+        write_serialized(dict(all_dimensions),
+                         os.path.join(SIM_SHAPE_NET_FOLDER, "all_dimensions_{:02d}.json".format(args_start_index)))
+    else:
         all_dimensions = dict()
         for i in range(args_stride):
             all_dimensions.update(
@@ -222,33 +298,6 @@ if __name__ == '__main__':
                 to_rotate_index[name[:4]] -= 1
         write_serialized(dict(to_rotate_index),
                          os.path.join(SIM_SHAPE_NET_FOLDER, "categories_to_rotate.json"))
-
-    else:
-        worker_args = []
-
-        for cat_id in SHAPE_NET_CATEGORY.keys():
-            for shape_id in range(SHAPE_NET_NUMS[cat_id]):
-                shape_id = "{:06d}".format(shape_id)
-                worker_args.append((cat_id, shape_id))
-
-        worker_args.sort()
-        worker_args = worker_args[args_start_index::args_stride]
-
-        if False:
-            debug_workers(worker_args, FAST)  # TODO: increase
-            sys.exit(0)
-
-        with Pool(cpu_count()) as p:
-            # TODO: this *really* should be using unordered_imap and/or a chunksize of 16
-            # right now even if you have 10+ cores, only 1 will be used for the most part
-            # since the task complexity is uneven and most of the workers finish early :(
-            # TODO: actually switching it over from starmap causes the workers to hang :(
-            # I suspect it's some cursed Blender interaction, but I can't reproduce it :(
-            all_dimensions = p.starmap(obj_to_blend, worker_args, 16)
-            print("starmap done")
-
-        write_serialized(dict(all_dimensions),
-                         os.path.join(SIM_SHAPE_NET_FOLDER, "all_dimensions_{:02d}.json".format(args_start_index)))
 
 
 # 0000 001903 [02] worker.308085.log

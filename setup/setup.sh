@@ -37,7 +37,8 @@ conda env create --force --file ${0%.sh}.yaml --name ${CONDA_ENV_NAME}
 
 echo
 echo "next steps (put them somewhere safe):"
-echo '$ '"./phys_sim/data/builder/collect_obj.sh ${SHAPE_DATA_DIR}/${SHAPE_ZIP_ROOT}"
+echo '$ '"touch ./phys_sim/data/additional_shapes/.pretend_we_extracted_stuff"
+#### '$ '"./phys_sim/data/builder/collect_obj.sh ${SHAPE_DATA_DIR}/${SHAPE_ZIP_ROOT}"
 echo '$ '"conda activate ${CONDA_ENV_NAME}"
 echo '$ time PYTHONPATH=. python3 ./render/data/builder/collect_blend.py'
 echo
