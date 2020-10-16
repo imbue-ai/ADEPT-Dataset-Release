@@ -1,4 +1,4 @@
-import re
+import random
 import os
 from utils.io import read_serialized, mkdir
 from utils.constants import CONTENT_FOLDER
@@ -9,6 +9,8 @@ _shape_net_names = ['airplane', 'ashcan', 'bag', 'basket', 'bathtub', 'bed', 'be
                     'jar', 'knife', 'lamp', 'laptop', 'loudspeaker', 'mailbox', 'microphone', 'microwave', 'motorbike',
                     'mug', 'piano', 'pillow', 'pistol', 'pot', 'printer', 'remote', 'rifle', 'rocket', 'skateboard',
                     'sofa', 'stove', 'table', 'telephone', 'tower', 'train', 'vessel', 'washer', 'wine_bottle']
+NUM_SHAPE_NETS = len(_shape_net_names)
+SHAPE_NET_PRESENT = False
 
 SIM_SHAPE_FOLDER = mkdir(os.path.join(CONTENT_FOLDER, "phys_sim", "data", "shapes"))
 RENDER_SHAPE_FOLDER = mkdir(os.path.join(CONTENT_FOLDER, "render", "data", "shapes"))
@@ -17,6 +19,7 @@ SIM_SHAPE_NET_FOLDER = mkdir(os.path.join(CONTENT_FOLDER, "phys_sim", "data", "a
 RENDER_SHAPE_NET_FOLDER = mkdir(os.path.join(CONTENT_FOLDER, "render", "data", "additional_shapes"))
 
 if len(os.listdir(SIM_SHAPE_NET_FOLDER)) > 0:
+    SHAPE_NET_PRESENT = True
     SHAPE_NET_CATEGORY = {"{:04d}".format(i): name for i, name in enumerate(_shape_net_names)}
     SHAPE_NET_NUMS = {"{:04d}".format(i): len(os.listdir(os.path.join(SIM_SHAPE_NET_FOLDER, "{:04d}".format(i))))
                       for i in range(len(_shape_net_names))}
@@ -38,7 +41,14 @@ if os.path.exists(os.path.join(SIM_SHAPE_FOLDER, "all_dimensions.json")):
     SHAPE_CATEGORY = {k: k for k in _shape_dimensions.keys()}
 else:
     _shape_dimensions = dict()
+
+# this dictionary contains both dimensions of the shapes - key=f"{cat_id:04}{shape_id:06}"
+# AND how many shapes there are for a category - key = f"{cat_id:04}"
 SHAPE_DIMENSIONS = {**_shape_dimensions, **_shape_net_dimensions}
+
+
+def random_simple_shape():
+    return random.choice(list(_shape_dimensions.keys()))
 
 
 def random_shape_net(cat_id, is_train):

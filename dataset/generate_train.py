@@ -6,12 +6,15 @@ import numpy as np
 from easydict import EasyDict
 
 from dataset.make_all import generate
-from utils.geometry import random_spherical_point, get_prospective_location
+from utils.geometry import get_prospective_location
 from utils.io import mkdir, write_serialized, catch_abort
 from utils.constants import CONFIG_FOLDER, SIM_OUTPUT_FOLDER, RENDER_OUTPUT_FOLDER, VIDEO_OUTPUT_FOLDER, \
     OCCLUDER_HALF_WIDTH
 from utils.misc import rand, random_distinct_colors, repeat_scale, get_host_id, BlenderArgumentParser
+from utils.shape_net import NUM_SHAPE_NETS
 from utils.shape_net import SHAPE_DIMENSIONS, random_shape_net
+from utils.shape_net import SHAPE_NET_PRESENT
+from utils.shape_net import random_simple_shape
 
 train_prefix = "train"
 TRAIN_CONFIG_FOLDER = mkdir(os.path.join(CONFIG_FOLDER, train_prefix))
@@ -95,11 +98,14 @@ def get_objects(colors, materials):
     for obj_id in range(n_objects):
         side_rand = rand(0, 1)
         size = rand(.2, .4)
-        while True:
-            cat_id = np.random.randint(55)
-            if cat_id % 5 != 0:
-                break
-        shape = random_shape_net(cat_id, True)
+        if SHAPE_NET_PRESENT:
+            while True:
+                cat_id = np.random.randint(NUM_SHAPE_NETS)
+                if cat_id % 5 != 0:
+                    break
+            shape = random_shape_net(cat_id, True)
+        else:
+            shape = random_simple_shape()
         pos_z = SHAPE_DIMENSIONS[shape][2] * size
         scale = repeat_scale(size)
         orn_z = rand(-180, 180)
